@@ -1,0 +1,1642 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>Cube</title>
+        <meta name="viewport" content="width=640">
+
+        <style>
+            body{
+                margin:0;
+                background-color: #000;
+                overflow: hidden;
+                background-color: #00030a;
+                background-image:url(img/bg1.jpg);
+                background-repeat: no-repeat;
+                background-position: center;
+            }
+
+            div#cover{
+                width:100%;
+                height:100%;
+                position: fixed;
+                top:0px;
+                left:0px;
+                background-color: #000;
+                transition-duration:.3s;
+                transition-property:opacity;
+            }
+
+            div#cover h2{
+                width: 100%;
+                height:30px;
+                line-height: 30px;
+                margin-top:-15px;
+                position: absolute;
+                top:50%;
+                color:#fff;
+                font-size:30px;
+                text-align: center;
+            }
+
+            p#textField{
+                width: 100%;
+                height:20px;
+                line-height: 20px;
+                position: absolute;
+                top:20%;
+                color:#fff;
+                font-size:20px;
+                text-align: center;
+                letter-spacing:2px;
+            }
+        </style>
+    <script src="../../../../js/three.min.js"></script>
+    <script src="../../../../js/threejs/loaders/deprecated/SceneLoader.js"></script>
+    <script src="../../../../js/jquery.js"></script>
+    <script src="../../../../js/jquery.easing.1.3.js"></script>
+    <script src="player.js"></script>
+
+    <script type="x-shader/x-vertex" id="leafVShader">
+        varying vec2 vUv;
+        varying vec3 vColor;
+
+        void main(void){
+
+           #ifdef USE_COLOR
+
+                #ifdef GAMMA_INPUT
+
+                    vColor = color * color;
+
+                #else
+
+                    vColor = color;
+
+                #endif
+
+            #endif
+
+            vUv = uv;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0);
+
+        }
+
+    </script>
+
+
+    <script type="x-shader/x-fragment" id="leafFShader">
+        varying vec2 vUv;
+        uniform sampler2D textuer;
+        varying vec3 vColor;
+
+        void main(void) {
+
+            vec4 c = texture2D( textuer, vUv );
+            c.rgb *= vColor;
+            if( c.a < .1 ){
+                discard;
+            }else{
+                gl_FragColor = c;
+            }
+
+        }
+
+    </script>
+
+        
+<script>
+var MYAPP = {};
+
+$( window ).load(function(){
+
+    new MYAPP.Main();
+
+});
+
+MYAPP.Main = (function(){
+
+
+    var self = this;
+    var touchManager;
+    var mouseEnabledFlag = true;
+    var rightMouseDownFlag = false;
+
+    var cover;
+    var textField;
+
+    //three
+    var raycaster;
+    var raycastManager;
+
+    var upVector = new THREE.Vector3( 0, 1, 0 );
+
+    var scene;
+    var renderer;
+    var camera;
+    var cameraY = 5;
+    var cameraRadius = 5;
+    var cameraAnimFlag = false;
+
+    var light;
+
+    var textureLoader = new THREE.TextureLoader();
+    var textureLoadCount = 0;
+    var player;
+    var textuers = {};
+    var leafMaterial;
+
+    var meshs = {};
+
+    var stageDatas = [
+        {
+            assetPositions : [
+                [-1,-1,-1,0,9,0],
+                [-1, 5,-1,0,0,0],
+                [-1,-1,-1,0,0,0],
+                [ 1, 0, 0,0,0,2],
+                [ 0, 0, 0,3,0,0],
+                [ 0, 0, 8,0,0,0],
+            ],
+            nextStageIds:[1],
+            clearToDo:'door',
+            letterMessage:''
+        },
+        {
+            assetPositions : [
+                [0,0,0,0,0,0],
+                [0,0,0,0,0,0],
+                [0,0,0,0,0,0],
+                [0,0,0,0,0,0],
+                [0,0,0,0,0,0],
+                [0,0,0,0,0,0]
+            ],
+            nextStageIds:[2],
+            clearToDo:'showAll',
+            letterMessage:'キスの練習させろよ'
+        },
+        {
+            assetPositions : [
+                [1,1,1,1,1,1],
+                [0,0,0,0,0,0],
+                [0,2,0,0,2,0],
+                [0,2,0,0,2,0],
+                [0,0,0,0,0,0],
+                [3,3,3,3,3,3]
+            ],
+            nextStageIds:[5],
+            clearToDo:'showAll',
+            letterMessage:'聖なる山ちゃん'
+        },
+        {
+            assetPositions : [
+                [ 9, 0, 0,-1,-1,-1],
+                [ 9, 0, 0,-1, 5,-1],
+                [ 9, 0, 8,-1,-1,-1],
+                [ 9, 0, 0, 0, 0, 0],
+                [ 9, 0, 0, 0, 0, 0],
+                [ 9, 0, 0, 0, 0, 0],
+            ],
+            nextStageIds:[4],
+            clearToDo:'door',
+            letterMessage:''
+        },
+        {
+            assetPositions : [
+                [0,6,0,0,6,4],
+                [0,6,0,0,6,4],
+                [0,6,0,0,6,4],
+                [0,6,0,0,6,4],
+                [0,6,0,0,6,4],
+                [0,6,0,0,6,4]
+            ],
+            nextStageIds:[3],
+            clearToDo:'showAll',
+            letterMessage:'実家に帰ってこいよ'
+        },
+        {
+            assetPositions : [
+                [0,0,0,0,0,0],
+                [0,0,0,0,0,0],
+                [9,9,9,9,9,9],
+                [8,8,8,8,8,8],
+                [7,7,7,7,7,7],
+                [6,6,6,6,6,6],
+            ],
+            nextStageIds:[0],
+            clearToDo:'showAll',
+            letterMessage:'コンビニでジュース買ってきて'
+        },
+    ];
+
+    var assetIds = [
+        'grass0',   //0
+        'mushroom0',//1
+        'mushroom1',//2
+        'mushroom2',//3
+        'saku0',    //4
+        'house0',   //5
+        'tree0',    //6
+        'tree1',    //7
+        'tree2',    //8
+        'tree3'     //9
+    ];
+
+    var nowStageId = 0;
+
+    var gameObjects = [];
+    var gameObjectLength = 0;
+
+
+    var jouroMesh;
+    var iconMaterial;
+    var letterMaterial;
+    var letterMesh;
+    var iconTexture;
+    var iconTextureUvs = [];
+    var letterTexture;
+
+    var particleTexture0;
+    var particles = [];
+    var particleLength = 10;
+    var nowParticleIndex = 0;
+
+
+
+
+
+    function Main(){
+
+        MYAPP.ua = new MYAPP.UserAgent();
+        touchManager = new MYAPP.TouchManager();
+        touchManager.setTouchStartFunc( downHandler.bind( this ) );
+        touchManager.setTouchMoveFunc( moveHandler.bind( this ) );
+        touchManager.setTouchEndFunc( upHandler.bind( this ) );
+        $( document.body ).bind( 'contextmenu', rightDownHandler );
+
+        cover = new MYAPP.Cover();
+        textField = $( '#textField' );
+
+        initScene();
+        initTexture();
+
+        raycaster = new THREE.Raycaster(new THREE.Vector3(), new THREE.Vector3(0, -1, 0));
+        raycastManager = new MYAPP.RaycastManager( scene, camera );
+        MYAPP.mousePosition = new THREE.Vector3();
+        setInterval(function(){         
+            setMousePosition();
+        }, 50 );
+
+        setInterval( animate, 30 / 1000 );
+        resize();
+        $( window ).resize( resize );
+
+        sound1 = $( '#getSound' )[0];
+        sound2 = $( '#kaidanSound' )[0];
+
+    }
+
+
+    function initScene(){
+
+        scene = new THREE.Scene();
+
+        renderer = new THREE.WebGLRenderer({ alpha: true });
+        renderer.setClearColor( 0x000000, 0 );
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        //renderer.shadowMapEnabled = true;
+        document.body.appendChild(renderer.domElement);
+
+
+        var fov = 100;
+        var aspect = window.innerWidth / window.innerHeight;
+        camera = new THREE.PerspectiveCamera(fov, aspect, 1, 20000);
+        camera.position.x = 0;
+        camera.position.y = cameraY;
+        camera.position.z = cameraRadius;
+        camera.lookAt( new THREE.Vector3( 0, 0, 0 ) );
+        MYAPP.camera = camera;
+        
+        var light = new THREE.DirectionalLight(0xffffff, .5);
+        light.position.set( 1, 5, 2);
+        light.castShadow = true;
+        light.shadowCameraFov = 50;
+        //light.shadowBias = .1;
+        light.shadowMapWidth = 1024;
+        light.shadowMapHeight = 1024;
+        light.shadowCameraNear = 1; //四角錐台の上面の位置
+        light.shadowCameraFar = 30; //四角錐台の下面の位置
+        light.shadowCameraLeft = -10;    //描画範囲左範囲
+        light.shadowCameraRight = 10;    //描画範囲右範囲
+        light.shadowCameraTop = 10;  //描画範囲上範囲
+        light.shadowCameraBottom = -10;  //描画範囲下範囲
+        scene.add(light);
+
+    }
+
+
+    function initTexture(){
+
+        textuers[ 'house' ] = THREE.ImageUtils.loadTexture('img/house0.jpg', THREE.UVMapping, textureLoadCheck);
+        textuers[ 'ground' ] = THREE.ImageUtils.loadTexture('img/ground0.jpg', THREE.UVMapping, textureLoadCheck);
+        textuers[ 'tree0' ] = THREE.ImageUtils.loadTexture('img/tree0.jpg', THREE.UVMapping, textureLoadCheck);
+        textuers[ 'tree1' ] = THREE.ImageUtils.loadTexture('img/tree1.jpg', THREE.UVMapping, textureLoadCheck);
+        textuers[ 'grass' ] = THREE.ImageUtils.loadTexture('img/grass0.png', THREE.UVMapping, textureLoadCheck);
+        textuers[ 'leaf' ] = THREE.ImageUtils.loadTexture('img/leaf0.png', THREE.UVMapping, textureLoadCheck);
+
+        iconTexture = THREE.ImageUtils.loadTexture('img/icon.png', THREE.UVMapping, textureLoadCheck);
+
+
+        particleTexture0 = THREE.ImageUtils.loadTexture('img/particle0.png', THREE.UVMapping, textureLoadCheck);
+        particleTexture0.repeat.set(.5, .5);
+
+    }
+
+
+    function textureLoadCheck(){
+
+        iconTexture.repeat.set(.5, .5);
+        iconTextureUvs[0] = new THREE.Vector2(0, .5);
+        iconTextureUvs[1] = new THREE.Vector2(.5, .5);
+        iconTextureUvs[2] = new THREE.Vector2(0, 0);
+        iconTexture.offset.copy( iconTextureUvs[0] );
+
+        textureLoadCount++;
+        if( textureLoadCount == 8 ){
+
+            var index = 0;
+            setInterval(function(){
+                iconTexture.offset.copy( iconTextureUvs[index] );  
+                index++;
+                if( index > 1 ) index = 0;
+            }, 500);
+
+            letterTexture = iconTexture.clone();
+            letterTexture.offset.copy( iconTextureUvs[2] );
+            letterTexture.needsUpdate = true;
+
+            initMaterial();
+            initObject();
+        }
+
+    }
+
+
+    function initMaterial(){
+        
+        leafMaterial = new THREE.ShaderMaterial({
+            fragmentShader: $( '#leafFShader' ).text(),
+            vertexShader: $( '#leafVShader' ).text(),
+            uniforms:{
+                textuer:{
+                    type:'t',
+                    value:textuers[ 'leaf' ]
+                }
+            },
+            transparent:true,
+            side:THREE.DoubleSide,
+            vertexColors:THREE.VertexColors
+        });
+
+        iconMaterial = new THREE.SpriteMaterial({ map:iconTexture, transparent:true });
+        iconMaterial.needsUpdate = true;
+
+        letterMaterial = new THREE.SpriteMaterial({ map:letterTexture, transparent:true });
+        letterMaterial.needsUpdate = true;
+
+    }
+
+
+    function initObject(){
+        
+        player = new Player( function(){
+
+            player.mesh.scale.set( .5, .5, .5);
+            player.mesh.updateMatrix();
+            player.setPosition( 0, 1.9, 1 );
+            player.mesh.castShadow  = true;
+            player.mesh.name = 'player';
+            scene.add( player.mesh );
+
+            initBackGroundMesh();
+
+        }.bind( this ) );
+
+
+        jouroMesh = new THREE.Sprite( iconMaterial );
+        jouroMesh.position.y = 4;
+        jouroMesh.position.z = 2;
+        jouroMesh.scale.set( .5, .5, .5 );
+        scene.add( jouroMesh );
+
+        letterMesh = new THREE.Sprite( letterMaterial );
+        letterMesh.position.set( 0, 5, 0 );
+        letterMesh.scale.set( .5, .5, .5 );
+        letterMesh.material.opacity = 0;
+        scene.add( letterMesh );
+
+        for( var i = 0; i < particleLength; i++ ){
+            var particle = new MYAPP.Particle0( particleTexture0 );
+            particles.push( particle );
+            scene.add( particle.mesh );
+        }
+
+    }
+
+
+    function initBackGroundMesh(){
+
+        var url = 'models/assets0.js';
+        var loader = new THREE.SceneLoader();
+        loader.load(url, function( result ){
+
+            for( var key in result.objects ){
+                var mesh = result.objects[key];
+                mesh.material = new THREE.MeshBasicMaterial({ alphaTest:.1 });
+                mesh.material.needsUpdate = true;
+                var name = mesh.name;
+
+                switch( name ){
+
+                    case 'ground':
+                    case 'mushroom0':
+                    case 'mushroom1':
+                    case 'mushroom2':
+                    case 'saku0':
+                        textuer = textuers[ 'ground' ];
+                        break;
+
+                    case 'house0':
+                        textuer = textuers[ 'house' ];
+                        break;
+
+                    case 'tree0':
+                    case 'tree1':
+                    case 'tree2':
+                        textuer = textuers[ 'tree0' ];
+                        break;
+
+                    case 'tree3':
+                        textuer = textuers[ 'tree1' ];
+                        break;
+
+                    case 'leaf0':
+                    case 'leaf1':
+                    case 'leaf2':
+                    case 'leaf3':
+                        //textuer = textuers[ 'leaf' ];
+                        // mesh.material.transparent = true;
+                        // mesh.material.side = THREE.DoubleSide;
+                        mesh.material = leafMaterial;
+                        mesh.material.needsUpdate = true;
+                        break;
+
+                    case 'transparent':
+                    case 'grass0':
+                        textuer = textuers[ 'grass' ];
+                        mesh.material.transparent = true;
+                        mesh.material.side = THREE.DoubleSide;
+                        break;
+
+                }
+                if( textuer ) mesh.material.map = textuer;
+
+
+                switch( name ){
+
+                    case 'ground':
+                        mesh.position.set( 0, 0, 0 );
+                        mesh.scale.set( .25, .25, .25 );
+                        mesh.receiveShadow  = true;
+                        //mesh.visible = false;
+                        break;
+
+                    case 'mushroom0':
+                        mesh.position.set( -1.2, 1.8, 0 );
+                        mesh.scale.set( .22, .22, .22 );
+                        //mesh.visible = false;
+                        break;
+
+                    case 'mushroom1':
+                        mesh.position.set( -1.2, 1.8, .5 );
+                        mesh.scale.set( .22, .22, .22 );
+                        //mesh.visible = false;
+                        break;
+
+                    case 'mushroom2':
+                        mesh.position.set( 1.2, 1.8, 0 );
+                        mesh.scale.set( .22, .22, .22 );
+                        //mesh.visible = false;
+                        break;
+
+                    case 'saku0':
+                        mesh.position.set( 1.5, 1.8, 0 );
+                        mesh.scale.set( .22, .22, .22 );
+                        //mesh.visible = false;
+                        break;
+
+                    case 'house0':
+                        mesh.position.set( 0, 1.8, 0 );
+                        mesh.scale.set( .2, .2, .2 );
+                        mesh.castShadow  = true;
+                        //mesh.visible = false;
+                        break;
+
+                    case 'tree0':
+                        mesh.position.set( -.5, 1.8, 1.5 );
+                        mesh.scale.set( .06, .06, .06 );
+                        //mesh.visible = false;
+                        break;
+
+                    case 'tree1':
+                        mesh.position.set( -1, 1.8, 1.5 );
+                        mesh.scale.set( .08, .08, .08 );
+                        //mesh.visible = false;
+                        break;
+
+                    case 'tree2':
+                        mesh.position.set( -1.5, 1.8, 1.5 );
+                        mesh.scale.set( .1, .1, .1 );
+                        //mesh.visible = false;
+                        break;
+
+                    case 'tree3':
+                        mesh.position.set( 1.5, 1.8, 1.5 );
+                        mesh.scale.set( .25, .25, .25 );
+                        //mesh.visible = false;
+                        break;
+
+                    case 'grass0':
+                        mesh.position.set( .7, 1.8, 1.5 );
+                        mesh.scale.set( .25, .25, .25 );
+                        //mesh.visible = false;
+                        break;
+
+                    case 'leaf0':
+                        mesh.position.set( -.5, 1.9, 1.5 );
+                        mesh.scale.set( .06, .06, .06 );
+                        //mesh.visible = false;
+                        break;
+
+                    case 'leaf1':
+                        mesh.position.set( -1, 1.9, 1.5 );
+                        mesh.scale.set( .08, .08, .08 );
+                        //mesh.visible = false;
+                        break;
+
+                    case 'leaf2':
+                        mesh.position.set( -1.5, 1.9, 1.5 );
+                        mesh.scale.set( .1, .1, .1 );
+                        //mesh.visible = false;
+                        break;
+
+                    case 'leaf3':
+                        mesh.position.set( 1.5, 1.8, 1.5 );
+                        mesh.scale.set( .085, .085, .085 );
+                        //mesh.visible = false;
+                        break;
+
+                    case 'transparent':
+                        mesh.position.set( 0, 0, 0 );
+                        mesh.scale.set( .25, .25, .25 );
+                        //mesh.visible = false;
+                        break;
+
+                }
+                mesh.updateMatrix();
+
+                if( name != 'ground' && name != 'transparent' ) mesh.visible = false;
+                mesh.name = name;
+                meshs[ name ] = mesh;
+                scene.add( mesh );
+
+            }
+
+            //treeとleafのメッシュをそれぞれObjedt3Dに一まとめにする
+            for( var i = 0; i < 4; i++ ){
+                var a = meshs[ 'tree' + i ];
+                var b = meshs[ 'leaf' + i ];
+                var tree = new THREE.Object3D();
+                tree.position.copy( a.position.clone() );
+                a.position.set( 0, 0, 0 );
+                b.position.set( 0, .1, 0 );
+                tree.add( a );
+                tree.add( b );
+                scene.add( tree );
+
+                meshs[ 'tree' + i ] = tree;
+                meshs[ 'tree' + i ].name = 'tree' + i;
+                delete meshs[ 'leaf' + i ];
+            }
+
+            //ステージ作成
+            refreshStage( nowStageId );
+
+            setTimeout(function(){
+                cover.hide();
+                cameraAnimFlag = true;
+                cameraFadeIn();
+            }, 500 );
+
+        }.bind(this));
+
+
+    }
+
+
+    function refreshStage( _nowStageId ){
+
+        if( gameObjectLength ){
+            for(var i = 0; i < gameObjectLength; i++ ){
+                var go = gameObjects[i];
+                if( go.mesh.assetName == 'house0' ){
+                    raycastManager.remove( go.mesh );
+                }
+                scene.remove( go.mesh );
+                go.mesh = null;
+                go = null;
+            }
+        }
+        gameObjectLength = 0;
+        gameObjects = [];
+        showLength = 0;
+
+
+        //木や家を完全にランダムにおいていってしまうと、
+        //いろいろかぶりまくってしまうので、
+        //配列に全部位置を保存したものを何パターンか持っておき、
+        //その配列のパターンをランダムで出したほうが見た目が良くなりそう。
+        var stageData = stageDatas[ _nowStageId ];
+        var _assetPositions = stageData.assetPositions;
+        var _nextStageIds = stageData.nextStageIds;
+        var count = 0;
+        var halfDist = 1.5;
+        var dist = ( halfDist * 2 ) / 5;
+        for( var y = 0; y < 6; y++ ){
+
+            for( var x = 0; x < 6; x++ ){
+
+                var assetIndex = _assetPositions[y][x];
+                var assetId = assetIds[assetIndex];
+                if( assetIndex != -1 ){    //assetIdが-1の場合は何も配置しない
+                    var _mesh = meshs[assetId];
+                    _mesh.visible = false;
+
+                    var mesh = cloneMesh( _mesh, gameObjectLength );
+                    scene.add( mesh );
+                    mesh.position.x = x * dist - halfDist;
+                    mesh.position.z = y * dist - halfDist;
+                    //fadeInMesh( mesh );
+                    var go = new MYAPP.GameObject( mesh, 
+    mesh.scale.clone(), gameObjectLength, gameObjectCallBackHandler );
+                    if( mesh.assetName == 'house0' ){
+                        go.nextStageId = _nextStageIds[ count ];
+                        raycastManager.add( mesh, true );
+                        count++;
+                    }
+                    gameObjects.push( go );
+                    gameObjectLength++;
+
+                }
+
+            }
+        }
+
+
+    }
+
+
+    function cloneMesh( mesh, index ){
+
+        var _mesh;
+
+        switch( mesh.name ){
+
+            case 'tree0':
+            case 'tree1':
+            case 'tree2':
+            case 'tree3':
+                _mesh = new THREE.Object3D();
+                var length = mesh.children.length;
+                for( var i = 0; i < length; i++ ){
+                    var child = mesh.children[i];
+
+                    if( child.name.indexOf( 'leaf' ) != -1 ){
+                        var material = leafMaterial;
+                    }else{
+                        material = child.material.clone();
+                    }
+                    var clone = new THREE.Mesh( child.geometry.clone(), material );
+                    clone.position.copy( child.position );
+                    clone.scale.copy( child.scale );
+                    clone.rotation.copy( child.rotation );
+                    _mesh.add( clone );
+                }
+                _mesh.position.copy( mesh.position );
+                _mesh.rotation.copy( mesh.rotation );
+                break;
+
+            default:
+                _mesh = new THREE.Mesh( mesh.geometry.clone(), mesh.material.clone() );
+                _mesh.position.copy( mesh.position );
+                _mesh.scale.copy( mesh.scale );
+                _mesh.rotation.copy( mesh.rotation );
+                break;
+
+        }
+        _mesh.assetName = mesh.name;
+        _mesh.name = mesh.name + index;
+        return _mesh;
+
+    }
+
+
+    function gameObjectCallBackHandler( go ){
+
+        showLength++;
+        if( showLength == gameObjectLength ){
+            if( stageDatas[nowStageId].clearToDo == 'showAll' ){
+
+                letterMesh.position.set( 0, 5, 0 );
+                letterMesh.material.opacity = 0;
+                $({ per:0 }).animate( { per:1 }, {
+                    duration:3000,
+                    easing: 'linear',
+                    step:function(){
+                        var _mesh = arguments[0];
+                        var per = arguments[1];
+                        _mesh.material.opacity = per;
+                        _mesh.position.y = 4 - .8 * per;
+                    }.bind( this, letterMesh ),
+                    complete:changeStageOnShowAll
+                });
+
+            }
+        }
+
+        //particle
+        particles[ nowParticleIndex ].mesh.position.copy( go.mesh.position.clone() );
+        particles[ nowParticleIndex ].fadeIn();
+
+        nowParticleIndex++;
+        if( nowParticleIndex == particleLength ) nowParticleIndex = 0;
+
+    }
+
+
+    function changeStageOnShowAll(){
+
+        sound1.play();
+        var str = stageDatas[nowStageId].letterMessage;
+        textField.html( str );
+        setTimeout(function(){
+
+            letterMesh.position.set( 0, 0, 0 );
+            letterMesh.opacity = 0;
+            textField.html( '' );
+            nowStageId = stageDatas[nowStageId].nextStageIds[0];
+            mouseEnabledFlag = false;
+            stageFadeOut();
+
+        }, 3000);
+
+    }
+
+
+    function downHandler( e ){
+
+        if( !mouseEnabledFlag ) return;
+
+        var flag = false;
+        if( MYAPP.ua.platform == 'pc' ){
+            if( e.button != 0 ) flag = true;
+        }else{
+            if( e.touches.length > 1 ) flag = true;
+        }
+
+
+        if( flag ){
+
+            rightMouseDownFlag = true;
+
+        }else{
+
+            var vector = screen2world();
+            vector.sub( camera.position.clone() ).normalize();
+            raycaster.set( camera.position.clone(), vector);
+
+            var obj = raycastManager.hitCheck(raycaster, 200, 'mouse');
+            if (obj.hitFlag) {
+                var target = obj.intersections[0].object;
+                if( target.assetName == 'house0' ){
+                    var go = gameObjects[ target.gameObejctId ];
+                    nowStageId = go.nextStageId;
+                    mouseEnabledFlag = false;
+
+                    stageChangeAnim( go, stageFadeOut );
+
+                }
+            }
+        
+        }
+
+    }
+
+
+    function rightDownHandler( e ){
+        
+        e.preventDefault();
+
+    }
+
+
+    function stageChangeAnim( go, callback ){
+
+        var goPos = go.mesh.position.clone();
+
+        //z 建物に入る
+        var compFunc2 = function(){
+            var targetVec = goPos;
+            player.animatePosition( targetVec, 1000, function(){
+                callback();
+            } );
+        }
+
+        //x 建物とx軸を合わせる
+        var compFunc1 = function(){
+            var targetVec = player.mesh.position.clone();
+            targetVec.x = goPos.x;
+            player.animatePosition( targetVec, 1000, compFunc2 );
+        }
+
+        //z 建物の前に
+        var targetVec = player.mesh.position.clone();
+        if( go.assetName == 'house0' ) targetVec.z = goPos.z + 1;
+        player.animatePosition( targetVec, 1000, compFunc1 );
+
+    }
+
+
+    function stageFadeOut(){
+
+        sound2.play();
+        cover.setStageNum( nowStageId + 1 );
+        cover.show();
+
+        setTimeout( function(){
+            //ステージ作成
+            refreshStage( nowStageId );
+            player.mesh.rotation.y = 180 * toRad;
+            player.setPosition( 0, 1.9, 1 );
+            cameraRot = 90;
+            cameraRotTarget = 90;
+            setCameraPosition( 90 );
+        }, 300 );
+
+        setTimeout( function(){
+            cover.hide();
+            cameraFadeIn();
+        }, 1000 );
+
+    }
+
+
+    function cameraFadeIn(){
+
+        jouroMesh.visible = false;
+
+        cameraAnimFlag = true;
+        var rad45 = 45 * toRad;
+        var z = 40;
+        camera.position.z = z;
+        meshs[ 'ground' ].rotation.z = rad45;
+        $({ per:0 }).animate( { per:1 }, {
+            duration:1000,
+            easing: 'easeOutQuart',
+            step:function(){
+                var per = arguments[0];
+                camera.position.z = cameraRadius + z - ( z * per );
+                camera.position.y = cameraY + 20 - ( 20 * per );
+                meshs[ 'ground' ].rotation.z = rad45 - ( rad45 * per );
+            }.bind( this ),
+            complete:function(){
+                cameraAnimFlag = false;
+                mouseEnabledFlag = true;
+                jouroMesh.visible = true;
+            }
+        });
+
+    }
+
+
+    function moveHandler(){
+
+
+    }
+
+
+    function upHandler(){
+
+        rightMouseDownFlag = false;
+        
+    }
+
+
+    function setCameraPosition( rot ){
+
+        if( cameraAnimFlag ) return;
+
+        var radian = rot * toRad;
+        var x = Math.cos( radian ) * cameraRadius;
+        var z = Math.sin( radian ) * cameraRadius;
+
+        camera.position.x = x;
+        camera.position.z = z;
+        camera.lookAt( new THREE.Vector3( 0, 0, 0 ) );
+
+    }
+
+
+    function setMousePosition(){
+
+        var vector = screen2world();
+        vector.sub( camera.position.clone() ).normalize();
+        raycaster.set( camera.position.clone(), vector);
+
+         var obj = raycastManager.hitCheck(raycaster, 200, 'mouse');
+        if (obj.hitFlag) {
+            var pos = raycastManager.getFirstPointByName(obj.intersections, 'mouseMesh');
+            if (pos) MYAPP.mousePosition.copy(pos);
+        } else {
+            MYAPP.mousePosition = new THREE.Vector3();
+        }
+
+    }
+
+
+    var toRad = Math.PI / 180;
+    var cameraRot = 90;
+    var cameraRotTarget = 90;
+    function animate(){
+
+        //gameObejct
+        if( mouseEnabledFlag ){
+            for( var i = 0; i < gameObjectLength; i++ ){
+                gameObjects[i].render();
+            }
+        }
+
+        //jouro
+        if( jouroMesh ){
+            jouroMesh.position.copy( MYAPP.mousePosition );
+            jouroMesh.position.y = 2.2;
+            var front = camera.position.clone().multiplyScalar( -1 ).normalize();
+            var right = front.cross( upVector ).normalize();
+            jouroMesh.position.add( right.multiplyScalar( .2 ) );
+        }
+
+        //camera
+        if( rightMouseDownFlag ){
+            cameraRotTarget += MYAPP.touch.offsetX * .1;
+        }
+        //cameraRot += -( cameraRot - cameraRotTarget ) * .1;
+        setCameraPosition( cameraRotTarget );
+
+        //player
+        if( player && player.mesh ) player.render( .002 );
+
+        renderer.render( scene, camera );
+
+    }
+
+
+    function resize(){
+
+        MYAPP.stageWidth = window.innerWidth;
+        MYAPP.stageHeight = window.innerHeight;
+        var w = MYAPP.stageWidth;
+        var h = MYAPP.stageHeight;
+
+        camera.aspect = w / h;
+        camera.updateProjectionMatrix();
+        renderer.setSize( w, h );
+
+    }
+
+    return Main;
+
+})();
+
+
+MYAPP.GameObject = (function(){
+
+    var sound0;
+
+    function GameObject( mesh, defaultScale, gameObejctId, callback ){
+
+        this.mesh = mesh;
+        this.fadeInFlag = false;
+        this.mesh.visible = true;
+        this.mesh.defaultScale = defaultScale;
+        this.mesh.gameObejctId = gameObejctId;
+        this.mesh.scale.multiplyScalar( .01 );
+
+        this.callback = callback;
+
+        sound0 = $( '#grassSound' )[0];
+
+    }
+
+
+
+    GameObject.prototype = {
+    
+        fadeInMesh : function( mesh ){
+
+            if( this.mesh.assetName == 'house0' ){
+                sound1.play();
+            }else{
+                sound0.play();
+            }
+            if( this.callback ) this.callback( this );
+
+            $({ scale:.01 }).animate( { scale:1 }, {
+                duration:1000,
+                easing: 'easeOutElastic',
+                step:function(){
+                    var _mesh = arguments[0];
+                    var s = _mesh.defaultScale.x * arguments[1];
+                    _mesh.scale.set( s, s, s );
+                }.bind( this, this.mesh ),
+                complete:function(){
+                    var _mesh = arguments[0];
+                    var s = _mesh.defaultScale.x;
+                    _mesh.scale.set( s, s, s );
+                }.bind( this, this.mesh )
+            });
+
+        },
+
+
+        render : function(){
+
+            if( this.fadeInFlag ) return;
+
+            var dist = MYAPP.mousePosition.clone().distanceTo( this.mesh.position.clone() );
+            if( dist < .5 ){
+                this.fadeInFlag = true;
+                this.fadeInMesh();
+            }
+
+        }
+
+    }
+
+    return GameObject;
+
+})();
+
+
+MYAPP.Particle0 = (function(){
+
+    var maxScale = .6;
+    var particleMaterial0;
+    var uvs = [];
+
+    function Particle0( texture ){
+
+        particleMaterial0 = new THREE.SpriteMaterial({ map:texture, transparent:true });
+        particleMaterial0.needsUpdate = true;
+
+        uvs[0] = new THREE.Vector2(0, .5);
+        uvs[1] = new THREE.Vector2(.5, .5);
+        uvs[2] = new THREE.Vector2(0, 0);
+        uvs[3] = new THREE.Vector2(.5, 0);
+        texture.offset.copy( uvs[0] );
+
+        this.mesh = new THREE.Object3D();
+        this.sprites = [];
+        for( var i = 0; i < 4; i++ ){
+            var material = particleMaterial0.clone();
+            material.map = texture.clone();
+            material.map.offset.copy( uvs[i].clone() );
+            material.map.needsUpdate = true;
+            var s = new THREE.Sprite( material );
+            s.position.y = 4;
+            s.position.z = 2;
+            s.scale.set( .01, .01, .01 );
+            s.fadeObj = { per:.01 };
+            s.visible = false;
+            this.mesh.add( s );
+            this.sprites.push( s );
+        }
+
+    }
+
+
+    Particle0.prototype = {
+
+        fadeIn : function(){
+
+            for( var i = 0; i < 4; i++ ){
+
+                var sprite = this.sprites[i];
+                sprite.position.set( 0, 0, 0 );
+                sprite.visible = true;
+                var targetPos = new THREE.Vector3(
+                    Math.random()*2-1, Math.random(), Math.random()*2-1
+                );
+
+                sprite.fadeObj.per = .01;
+                $(sprite.fadeObj).stop().animate( { per:1 }, {
+                    duration:1000,
+                    easing: 'easeOutElastic',
+                    step:function(){
+                        var _sprite = arguments[0];
+                        var _targetPos = arguments[1];
+                        var _per = arguments[2];
+                        var s = Math.sin(_per*3.14) * maxScale;
+                        _sprite.scale.set( s, s, s );
+                        _sprite.position.set(
+                            _targetPos.x * _per,
+                            _targetPos.y * _per,
+                            _targetPos.z * _per
+                        );
+                    }.bind( this, sprite, targetPos ),
+                    complete:function(){
+                        var _sprite = arguments[0];
+                        _sprite.visible = false;
+                    }.bind( this, sprite )
+                });
+            }
+
+        }
+
+    }
+
+    return Particle0;
+
+})();
+
+
+MYAPP.Cover = (function(){
+
+    var stageNum;
+
+    function Cover(){
+
+        this.element = $( '#cover' );
+        stageNum = this.element.find( 'span' );
+
+    }
+
+
+    Cover.prototype = {
+
+        hide : function(){
+
+            this.element.css({ opacity:0 });
+
+        },
+
+
+        show : function(){
+            
+            this.element.css({ opacity:1 });
+
+        },
+
+
+        setStageNum : function( num ){
+
+            stageNum.html( num );
+
+        }
+
+    }
+
+    return Cover;
+
+})();
+
+
+MYAPP.touch = {
+    x:0,
+    y:0,
+    oldX:0,
+    oldY:0,
+    dragDistX:0,
+    dragDistY:0,
+    offsetX:0, 
+    offsetY:0,
+    totalOffsetX:0,
+    totalOffsetY:0,
+    downFlag:false
+};
+
+
+MYAPP.TouchManager = (function(){
+
+    var touchStartFuncs = [];
+    var touchStartFuncLength = 0;
+    var touchMoveFuncs = [];
+    var touchMoveFuncLength = 0;
+    var touchEndFuncs = [];
+    var touchEndFuncLength = 0;
+    var touch;
+
+
+
+    function TouchManager(){
+     
+        touch = MYAPP.touch;
+        this.ua = new MYAPP.UserAgent();
+
+        this.movePreventDefaultFlag = false;
+
+        if( this.ua.platform == 'pc' ){
+            document.addEventListener('mousedown', this.touchStartHandler.bind( this ), false);
+            document.addEventListener('mousemove', this.touchMoveHandler.bind( this ), false);
+            document.addEventListener('mouseup', this.touchEndHandler.bind( this ), false);
+        }else{
+            document.addEventListener('touchstart', this.touchStartHandler.bind( this ), false);
+            document.addEventListener('touchmove', this.touchMoveHandler.bind( this ), false);
+            document.addEventListener('touchend', this.touchEndHandler.bind( this ), false);
+        }
+    }
+
+
+    TouchManager.prototype = {
+
+        //------------------------タッチイベント------------------------
+        touchStartHandler : function(e){
+            
+            touch.downFlag = true;
+
+            if( this.ua.platform == 'pc' ){
+                touch.x = e.clientX;
+                touch.y = e.clientY;
+            }else{
+                if (e.touches.length) {
+                    touch.x = e.touches[0].pageX;
+                    touch.y = e.touches[0].pageY;
+                }
+            }
+
+            for( var i = 0; i < touchStartFuncLength; i++ ) touchStartFuncs[ i ]( e );
+        },
+
+
+        touchMoveHandler : function(e){
+
+            //if( nowPage == 'top' && touch.y > 680 ) return;
+            
+            touch.oldX = touch.x;
+            touch.oldY = touch.y;
+            if( this.ua.platform == 'pc' ){
+                touch.x = e.clientX;
+                touch.y = e.clientY;
+            }else{
+                if (e.touches.length) {
+                    touch.x = e.touches[0].pageX;
+                    touch.y = e.touches[0].pageY;
+                }
+            }
+
+            if( touch.downFlag ){
+                touch.offsetX = touch.x - touch.oldX;
+                touch.offsetY = touch.y - touch.oldY;
+                touch.totalOffsetX += touch.offsetX;
+                touch.totalOffsetY += touch.offsetY;
+                touch.dragDistX = Math.abs(touch.offsetX);
+                touch.dragDistY = Math.abs(touch.offsetY);
+            }
+            
+            for( var i = 0; i < touchMoveFuncLength; i++ ) touchMoveFuncs[ i ]( e );
+            
+            //AndroidでtouchEndを発火させる為の対策
+            if( touch.dragDistY < touch.dragDistX &&
+                this.ua.platform != 'pc' ||
+                this.movePreventDefaultFlag ){
+                if( e.target.tagName != 'INPUT' &&
+                    e.target.tagName != 'TEXTAREA' ) e.preventDefault();
+            }
+        },
+
+
+        touchEndHandler : function(e){
+            
+            touch.downFlag = false;
+            touch.offsetX = 0;
+            touch.offsetY = 0;
+            touch.totalOffsetX = 0;
+            touch.totalOffsetY = 0;
+            touch.dragDistX = 0;
+            touch.dragDistY = 0;
+
+            for( var i = 0; i < touchEndFuncLength; i++ ) touchEndFuncs[ i ]( e );
+        },
+
+
+        //------------------------グローバル関数------------------------
+        setTouchStartFunc : function( func ){
+
+            touchStartFuncs.push( func );
+            touchStartFuncLength = touchStartFuncs.length;
+
+        },
+
+        setTouchMoveFunc : function( func ){
+
+            touchMoveFuncs.push( func );
+            touchMoveFuncLength = touchMoveFuncs.length;
+
+        },
+
+        setTouchEndFunc : function( func ){
+
+            touchEndFuncs.push( func );
+            touchEndFuncLength = touchEndFuncs.length;
+
+        }
+
+    }
+
+    return TouchManager;
+
+})();
+
+
+function screen2world() {
+
+    var _touch = new THREE.Vector3( MYAPP.touch.x, MYAPP.touch.y, .5 );
+    _touch.x = (_touch.x / MYAPP.stageWidth) * 2 - 1;
+    _touch.y = -(_touch.y / MYAPP.stageHeight) * 2 + 1;
+
+    //projector.unprojectVector(_touch, camera);
+    _touch.unproject( MYAPP.camera );
+
+    return _touch;
+}
+
+
+MYAPP.RaycastManager = (function () {
+
+    var scene;
+    var camera;
+
+    var intersected;
+    var baseColor = 0x333333;
+    var intersectColor = 0x00D66B;
+    var raycastTargets = [];
+
+    var cursorChangeTargets = [];
+    var cursorChangeTargetsLength = 0;
+
+
+
+    function RaycastManager( _scene, _camera ) {
+
+        scene = _scene;
+        camera = _camera;
+
+        this.raycastType = 'normal';
+        this.mouseMeshY = .1;
+        this.mouseTopMeshY = 10;
+        this.mouseMesh;
+        this.mouseTopMesh;
+        this.mouseOverTarget;
+        this.downTarget;
+
+        var geometry = new THREE.PlaneGeometry(300, 300, 10, 10);
+        var material = new THREE.MeshBasicMaterial({ color: 0xd6f1ff, wireframe: true, visible: false });
+        this.mouseMesh = new THREE.Mesh(geometry, material);
+        this.mouseMesh.position.y = 1.8;
+        this.mouseMesh.rotation.x = 270 * Math.PI / 180;
+        this.mouseMesh.name = 'mouseMesh';
+        scene.add(this.mouseMesh);
+        this.add(this.mouseMesh);
+
+        this.animate();
+    }
+
+
+    var p = RaycastManager.prototype;
+
+    p.raycast = function(raycaster) {
+
+        var intersections = raycaster.intersectObjects(raycastTargets, true);
+
+        return intersections;
+    };
+
+    p.add = function(object, mouseOverTargetFlag) {
+        if (typeof mouseOverTargetFlag === "undefined") { mouseOverTargetFlag = false; }
+        
+        raycastTargets.push(object);
+
+        if (mouseOverTargetFlag) {
+            cursorChangeTargets.push(object);
+            cursorChangeTargetsLength = cursorChangeTargets.length;
+        }
+    };
+
+    p.remove = function(object) {
+        var name = object.name;
+
+        var index = -1;
+        for (var i = 0; i < raycastTargets.length; i++) {
+            if (raycastTargets[i].name == name) index = i;
+        }
+        if (index != -1) raycastTargets.splice(index, 1);
+
+        index = -1;
+        for (i = 0; i < cursorChangeTargetsLength; i++) {
+            if (name == cursorChangeTargets[i].name) index = i;
+        }
+        if (index != -1) cursorChangeTargets.splice(index, 1);
+        cursorChangeTargetsLength = cursorChangeTargets.length;
+    };
+
+    p.hitCheck = function(raycaster, dist, type) {
+        if (typeof type === "undefined") { type = ''; }
+        var obj = {};
+        var hitFlag = false;
+        var _mouseOverFlag = false;
+        var mouseOutFlag = false;
+        var oldMouseOverTarget;
+        if (this.mouseOverTarget) oldMouseOverTarget = this.mouseOverTarget;
+
+        intersections = this.raycast(raycaster);
+    
+        var intersectionsLength = intersections.length;
+
+        if (intersectionsLength > 0) {
+
+            if (intersected != intersections[0].object) {
+                intersected = intersections[0].object;
+            }
+
+            var distance = intersections[0].distance;
+            if (distance > 0 && distance < dist) {
+                hitFlag = true;
+                obj.intersections = intersections;
+
+                if (type == 'mouse') {
+                    for (var i = 0; i < intersectionsLength; i++) {
+                        for (var j = 0; j < cursorChangeTargetsLength; j++) {
+                            if (intersections[i].object.name == cursorChangeTargets[j].name && intersections[i].object.visible) {
+                                if (!_mouseOverFlag) this.mouseOverTarget = intersections[i].object;
+                                _mouseOverFlag = true;
+                            }
+                        }
+                    }
+                }
+            }
+        } else if (intersected) {
+            intersected = null;
+        }
+
+        if (type == 'mouse') {
+            if (_mouseOverFlag) {
+                document.body.style.cursor = 'pointer';
+                if( this.mouseOverTarget.parent.mouseOver ) this.mouseOverTarget.parent.mouseOver();
+            } else {
+                this.mouseOverTarget = null;
+            }
+
+            if (this.mouseOverTarget != oldMouseOverTarget) {
+                document.body.style.cursor = 'auto';
+                if (oldMouseOverTarget &&
+                    oldMouseOverTarget.parent &&
+                    oldMouseOverTarget.parent.mouseOut ){ oldMouseOverTarget.parent.mouseOut();
+                }
+            }
+        }
+
+        obj.hitFlag = hitFlag;
+
+        return obj;
+    };
+
+
+    p.getFirstPointByName = function(intersections, name) {
+        var length = intersections.length;
+        var point;
+        for (var i = 0; i < length; i++) {
+            if (intersections[i].object.name == name && !point) {
+                point = new THREE.Vector3().copy(intersections[i].point);
+            }
+        }
+
+        return point;
+    };
+
+
+    p.getFirstObjectByName = function(intersections, name) {
+        var length = intersections.length;
+        var object;
+        for (var i = 0; i < length; i++) {
+            if (intersections[i].object.name == name && !object) {
+                object = intersections[i];
+            }
+        }
+
+        return object;
+    };
+
+
+    p.animate = function() {
+
+        requestAnimationFrame(function () {
+            return this.animate();
+        }.bind( this ));
+
+  //       if (camera) {
+  //           this.mouseMesh.position.copy( camera.position);
+  //           this.mouseMesh.position.y = this.mouseMeshY;
+        // }
+
+    };
+
+    return RaycastManager;
+
+})();
+
+
+
+MYAPP.UserAgent = (function(){
+
+    function UserAgent(){
+
+        this.isAndroid = (navigator.userAgent.search(/Android/)> 0)?true:false;
+        this.is_iOS = (navigator.userAgent.search(/iPhone/)> 0 || navigator.userAgent.search(/iPod/)> 0 || navigator.userAgent.search(/iPad/)> 0)?true:false;
+        this.is_oldiPhone = (this.is_iOS ===true && window.devicePixelRatio > 1 && window.screen.height !== 568)?true:false;
+    
+
+        var ua = navigator.userAgent.toLowerCase();
+        var ver = window.navigator.appVersion.toLowerCase();
+        var browser = '';
+        var ieVer = 9999;
+        if (ua.indexOf("msie") != -1){
+            browser = 'ie';
+            if (ver.indexOf("msie 6.") != -1){
+                ieVer = 6;
+            }else if (ver.indexOf("msie 7.") != -1){
+                ieVer = 7;
+            }else if (ver.indexOf("msie 8.") != -1){
+                ieVer = 8;
+            }else if (ver.indexOf("msie 9.") != -1){
+                ieVer = 9;
+            }else if (ver.indexOf("msie 10.") != -1){
+                ieVer = 10;
+            }
+        }else if(ua.indexOf('trident/7') != -1){
+            browser = 'ie';
+            ieVer = 11;
+        }else if (ua.indexOf('chrome') != -1) {
+            browser = 'chrome';
+        } else if (ua.indexOf('safari') != -1) {
+            browser = 'safari';
+        } else if (ua.indexOf('firefox') != -1) {
+            browser = 'firefox';
+        } else if (ua.indexOf('opera') != -1) {
+            browser = 'opera';
+        }
+
+        ua = navigator.userAgent;
+        var twitterFlag = false;
+        if (ua.search(/Twitter/) != -1)
+            twitterFlag = true;
+        var platform = 'pc';
+        if (ua.search(/iPhone/) != -1) {
+            platform = "sp";
+        } else if ((ua.search(/Android/) != -1) && (ua.search(/Mobile/) != -1)) {
+            platform = "sp";
+        } else if ((ua.search(/iPad/) != -1) || (ua.search(/Android/) != -1)) {
+            platform = "ipad";
+        }
+
+        this.browser = browser;
+        this.ieVer = ieVer;
+        this.platform = platform;
+    
+    }
+
+    return UserAgent;
+
+})();
+
+    </script>    
+    </head>
+    <body>
+
+        <audio src="sound/se_noise_1.mp3" id="grassSound"></audio>
+        <audio src="sound/se_discovery_1.mp3" id="getSound"></audio>
+        <audio src="sound/se_kaidan_2.mp3" id="kaidanSound"></audio>
+
+        <div id="cover">
+            <h2>Stage <span>1</span></h2>
+        </div>
+        <p id="textField"></p>
+    </body>
+</html>
